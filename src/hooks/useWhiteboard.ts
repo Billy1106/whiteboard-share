@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ref, set, onValue, remove } from 'firebase/database';
+import { ref, onValue } from 'firebase/database';
 import { db } from '@/lib/firebase';
-
-export type DrawingTool = 'pen' | 'eraser' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'text' | 'select';
+import { WhiteboardManager, DrawingContext, DrawingTool } from '@/whiteboard';
 
 interface UseWhiteboardProps {
   sessionId: string;
@@ -11,28 +10,14 @@ interface UseWhiteboardProps {
 
 export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fabricCanvasRef = useRef<any>(null);
+  const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
+  const whiteboardManagerRef = useRef<WhiteboardManager | null>(null);
   const [isCanvasReady, setIsCanvasReady] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [fabricLib, setFabricLib] = useState<any>(null);
   const [currentTool, setCurrentTool] = useState<DrawingTool>('pen');
   const [drawingColor, setDrawingColorState] = useState('#000000');
   const [drawingWidth, setDrawingWidthState] = useState(5);
-
-  
-  // 最新の値を参照するためのref
-  const currentColorRef = useRef(drawingColor);
-  const currentWidthRef = useRef(drawingWidth);
-  const currentToolRef = useRef(currentTool);
-  const startPointRef = useRef<{ x: number; y: number } | null>(null);
-  
-  // refの値を更新
-  useEffect(() => {
-    currentColorRef.current = drawingColor;
-    currentWidthRef.current = drawingWidth;
-    currentToolRef.current = currentTool;
-  }, [drawingColor, drawingWidth, currentTool]);
 
   // Fabric.jsを動的にインポート
   useEffect(() => {
@@ -65,7 +50,16 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     });
     fabricCanvasRef.current = canvas;
 
-
+    // WhiteboardManagerを初期化
+    const context: DrawingContext = {
+      canvas,
+      sessionId,
+      userId,
+      fabricLib
+    };
+    
+    const manager = new WhiteboardManager(context);
+    whiteboardManagerRef.current = manager;
 
     // パス設定を共通化する関数
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +75,7 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const addPathToCanvas = (pathObject: any, pathId: string, loadedPathIds: Set<string>) => {
       // FirebaseのIDをオブジェクトに保存
-      pathObject.set('firebaseId', pathId);
+      (pathObject as fabric.Object & { firebaseId?: string }).firebaseId = pathId;
       canvas.add(pathObject);
       canvas.renderAll();
       loadedPathIds.add(pathId);
@@ -97,7 +91,18 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
           canvas.freeDrawingBrush.color = '#000000';
         }
         
-        updateCanvasMode();
+        // 初期設定をManagerに反映
+        manager.setTool(currentTool);
+        manager.setColor(drawingColor);
+        manager.setWidth(drawingWidth);
+        
+        console.log('初期設定完了:', {
+          currentTool,
+          drawingColor,
+          drawingWidth,
+          isDrawingMode: canvas.isDrawingMode,
+          freeDrawingBrush: canvas.freeDrawingBrush
+        });
         
         const canvasElement = canvas.getElement();
         if (canvasElement) {
@@ -111,41 +116,6 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
         console.error('Canvas initialization error:', error);
       }
     }, 100);
-
-    // キャンバスモードを更新する関数
-    const updateCanvasMode = () => {
-      if (!canvas) return;
-      
-      switch (currentTool) {
-        case 'pen':
-          canvas.isDrawingMode = true;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          canvas.getElement().style.cursor = 'crosshair';
-          break;
-        case 'eraser':
-          canvas.isDrawingMode = true;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          canvas.getElement().style.cursor = 'crosshair';
-          break;
-        case 'select':
-          canvas.isDrawingMode = false;
-          canvas.selection = true;
-          canvas.skipTargetFind = false;
-          canvas.getElement().style.cursor = 'default';
-          break;
-        default:
-          canvas.isDrawingMode = false;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          canvas.getElement().style.cursor = 'crosshair';
-          break;
-      }
-    };
-
-    // ツール変更時にキャンバスモードを更新
-    updateCanvasMode();
 
     // Firebase同期設定
     const pathsRef = ref(db, `drawings/${sessionId}/paths`);
@@ -257,110 +227,19 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       }
     });
 
-    // プレビュー図形作成関数
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const createPreviewShape = (start: any, tool: DrawingTool) => {
-      let shape;
-      
-      switch (tool) {
-        case 'rectangle':
-          const FabricRect = fabricLib.Rect || fabricLib.default?.Rect;
-          if (!FabricRect) return null;
-          
-          shape = new FabricRect({
-            left: start.x - 10,
-            top: start.y - 10,
-            width: 20,
-            height: 20,
-            fill: 'transparent',
-            stroke: currentColorRef.current,
-            strokeWidth: Math.max(2, currentWidthRef.current),
-            strokeDashArray: [8, 4],
-            opacity: 0.7,
-            selectable: false,
-            evented: false,
-            excludeFromExport: true,
-          });
-          break;
-        case 'circle':
-          const FabricCircle = fabricLib.Circle || fabricLib.default?.Circle;
-          if (!FabricCircle) return null;
-          
-          shape = new FabricCircle({
-            left: start.x - 10,
-            top: start.y - 10,
-            radius: 10,
-            fill: 'transparent',
-            stroke: currentColorRef.current,
-            strokeWidth: Math.max(2, currentWidthRef.current),
-            strokeDashArray: [8, 4], // より見やすい点線
-            opacity: 0.7,
-            selectable: false,
-            evented: false,
-            excludeFromExport: true,
-          });
-          break;
-        case 'line':
-          const FabricLine = fabricLib.Line || fabricLib.default?.Line;
-          if (!FabricLine) return null;
-          
-          shape = new FabricLine([start.x, start.y, start.x + 20, start.y], {
-            stroke: currentColorRef.current,
-            strokeWidth: Math.max(2, currentWidthRef.current),
-            strokeDashArray: [8, 4], // より見やすい点線
-            opacity: 0.7,
-            selectable: false,
-            evented: false,
-            excludeFromExport: true,
-          });
-          break;
-      }
-      
-      return shape;
-    };
-
-    // プレビュー図形更新関数
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updatePreviewShape = (shape: any, start: any, end: any, tool: DrawingTool) => {
-      switch (tool) {
-        case 'rectangle':
-          shape.set({
-            left: Math.min(start.x, end.x),
-            top: Math.min(start.y, end.y),
-            width: Math.max(3, Math.abs(end.x - start.x)),
-            height: Math.max(3, Math.abs(end.y - start.y)),
-          });
-          break;
-        case 'circle':
-          const radius = Math.max(3, Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)) / 2);
-          const centerX = (start.x + end.x) / 2;
-          const centerY = (start.y + end.y) / 2;
-          shape.set({
-            left: centerX - radius,
-            top: centerY - radius,
-            radius: radius,
-          });
-          break;
-        case 'line':
-          // 直線の場合は座標を直接設定
-          shape.set({
-            x1: start.x,
-            y1: start.y,
-            x2: end.x,
-            y2: end.y,
-          });
-          break;
-      }
-    };
-
     // マウスイベントハンドラー
     let isDown = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let currentShape: any = null;
+    // プレビューの開始位置を保存
+    let startPoint: { x: number; y: number } | null = null;
     
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on('mouse:down', (opt: any) => {
-      const tool = currentToolRef.current;
+      const tool = currentTool;
+      
+      // ペンと消しゴムはfreeDrawingModeで処理されるのでスキップ
+      if (['pen', 'eraser'].includes(tool)) {
+        return;
+      }
       
       if (!['rectangle', 'circle', 'line', 'text'].includes(tool)) {
         return;
@@ -368,264 +247,94 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       
       isDown = true;
       const pointer = canvas.getPointer(opt.e);
-      startPointRef.current = pointer;
+      startPoint = pointer;
       
       if (tool === 'text') {
-        addText(pointer.x, pointer.y);
+        manager.addText(pointer);
         return;
       }
       
-      // 図形描画開始時にプレビュー用の図形を作成
+      // 図形描画開始時にプレビューを開始
       if (['rectangle', 'circle', 'line'].includes(tool)) {
-        currentShape = createPreviewShape(pointer, tool);
-        
-        if (currentShape) {
-          canvas.add(currentShape);
-          canvas.renderAll();
-        }
+        manager.startPreview(pointer);
       }
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on('mouse:move', (opt: any) => {
-      if (!isDown || !startPointRef.current || !currentShape) {
+      if (!isDown || !startPoint) {
         return;
       }
       
       const pointer = canvas.getPointer(opt.e);
-      const tool = currentToolRef.current;
-      updatePreviewShape(currentShape, startPointRef.current, pointer, tool);
-      canvas.renderAll();
+      
+      if (manager.hasPreview()) {
+        manager.updatePreview(startPoint, pointer);
+      }
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on('mouse:up', (opt: any) => {
-      if (!isDown || !startPointRef.current) {
+      if (!isDown || !startPoint) {
         return;
       }
       
       isDown = false;
       const pointer = canvas.getPointer(opt.e);
-      const tool = currentToolRef.current;
+      const tool = currentTool;
       
-      if (currentShape && ['rectangle', 'circle', 'line'].includes(tool)) {
-        canvas.remove(currentShape);
+      if (manager.hasPreview() && ['rectangle', 'circle', 'line'].includes(tool)) {
+        manager.endPreview();
         
-        const distance = Math.max(Math.abs(pointer.x - startPointRef.current.x), Math.abs(pointer.y - startPointRef.current.y));
+        const distance = Math.max(Math.abs(pointer.x - startPoint.x), Math.abs(pointer.y - startPoint.y));
         
         if (distance > 3) {
-          addShape(startPointRef.current, pointer, tool);
+          manager.drawShape(startPoint, pointer);
         }
-        
-        currentShape = null;
       }
       
-      startPointRef.current = null;
+      startPoint = null;
     });
 
-    // 図形追加関数
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const addShape = (start: any, end: any, tool: DrawingTool) => {
-      let shape;
-      const timestamp = Date.now();
-      const objectId = `${userId}_${timestamp}`;
-      
-      switch (tool) {
-        case 'rectangle':
-          const FabricRect = fabricLib.Rect || fabricLib.default?.Rect;
-          const rectWidth = Math.max(5, Math.abs(end.x - start.x));
-          const rectHeight = Math.max(5, Math.abs(end.y - start.y));
-          
-          if (!FabricRect) break;
-          
-          shape = new FabricRect({
-            left: Math.min(start.x, end.x),
-            top: Math.min(start.y, end.y),
-            width: rectWidth,
-            height: rectHeight,
-            fill: 'transparent',
-            stroke: currentColorRef.current,
-            strokeWidth: currentWidthRef.current,
-          });
-          break;
-        case 'circle':
-          const FabricCircle = fabricLib.Circle || fabricLib.default?.Circle;
-          if (!FabricCircle) break;
-          
-          const radius = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)) / 2;
-          const centerX = (start.x + end.x) / 2;
-          const centerY = (start.y + end.y) / 2;
-          shape = new FabricCircle({
-            left: centerX - radius,
-            top: centerY - radius,
-            radius: radius,
-            fill: 'transparent',
-            stroke: currentColorRef.current,
-            strokeWidth: currentWidthRef.current,
-          });
-          break;
-        case 'line':
-          const FabricLine = fabricLib.Line || fabricLib.default?.Line;
-          if (!FabricLine) break;
-          
-          shape = new FabricLine([start.x, start.y, end.x, end.y], {
-            stroke: currentColorRef.current,
-            strokeWidth: currentWidthRef.current,
-          });
-          break;
-      }
-      
-      if (shape) {
-        shape.set('firebaseId', objectId);
-        canvas.add(shape);
-        canvas.renderAll();
-        
-        const shapeData = shape.toObject();
-        const shapeRef = ref(db, `drawings/${sessionId}/paths/${objectId}`);
-        set(shapeRef, shapeData).catch((error) => {
-          console.error('Firebase save error:', error);
-        });
-      }
-    };
-
-    // テキスト追加関数
-    const addText = (x: number, y: number) => {
-      const FabricIText = fabricLib.IText || fabricLib.default?.IText;
-      const timestamp = Date.now();
-      const textId = `${userId}_${timestamp}`;
-      
-      const text = new FabricIText('テキストを入力', {
-        left: x,
-        top: y,
-        fontFamily: 'Arial',
-        fontSize: 20,
-        fill: currentColorRef.current,
-      });
-      
-      // FirebaseのIDをオブジェクトに設定
-      text.set('firebaseId', textId);
-      
-      canvas.add(text);
-      canvas.setActiveObject(text);
-      text.enterEditing();
-      text.selectAll();
-      canvas.renderAll();
-      
-      // テキスト編集完了時の保存
-      text.on('editing:exited', () => {
-        const textData = text.toObject();
-        const textRef = ref(db, `drawings/${sessionId}/paths/${textId}`);
-        set(textRef, textData).catch((error) => {
-          console.error('Firebase save error:', error);
-        });
-      });
-    };
-
-    // パス作成完了時の処理
+    // パス作成完了時の処理（コマンドパターンを使用）
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on('path:created', (e: any) => {
       if (!e.path) return;
       
-      if (currentToolRef.current === 'eraser') {
-        const objects = canvas.getObjects();
-        const eraserPath = e.path;
-        
-        // 消しゴム：交差するオブジェクトを削除
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        objects.forEach((obj: any) => {
-          if (obj !== eraserPath && obj.intersectsWithObject && obj.intersectsWithObject(eraserPath)) {
-            const firebaseId = obj.get('firebaseId');
-            canvas.remove(obj);
-            
-            // Firebaseからも削除
-            if (firebaseId) {
-              const objectRef = ref(db, `drawings/${sessionId}/paths/${firebaseId}`);
-              remove(objectRef).catch((error) => {
-                console.error('Firebase delete error:', error);
-              });
-            }
-          }
-        });
-        
-        canvas.remove(eraserPath);
+      if (currentTool === 'eraser') {
+        // 消しゴム機能をコマンドパターンで実行
+        manager.eraseObjects(e.path);
         return;
       }
       
-      // パスをFirebaseに保存
-      const timestamp = Date.now();
-      const pathId = `${userId}_${timestamp}`;
-      
-      e.path.set('fill', '');
-      e.path.set('firebaseId', pathId);
-      
-      const pathData = e.path.toObject();
-      const pathRef = ref(db, `drawings/${sessionId}/paths/${pathId}`);
-      set(pathRef, pathData).catch((error) => {
-        console.error('Firebase save error:', error);
-      });
+      if (currentTool === 'pen') {
+        // ペン描画をコマンドパターンで実行
+        e.path.set('fill', '');
+        const pathData = e.path.toObject();
+        manager.addPath(pathData);
+        console.log('ペンツールでパス作成:', pathData);
+      }
     });
 
     return () => {
       canvas.dispose();
       unsubscribe();
     };
-  }, [sessionId, userId, fabricLib]);
+  }, [sessionId, userId, fabricLib, currentTool, drawingColor, drawingWidth]);
 
   // 色と線の太さの変更を処理
   useEffect(() => {
-    if (fabricCanvasRef.current && fabricCanvasRef.current.freeDrawingBrush) {
-      const canvas = fabricCanvasRef.current;
-      if (currentTool === 'eraser') {
-        canvas.freeDrawingBrush.color = '#FFFFFF';
-        canvas.freeDrawingBrush.width = drawingWidth * 2;
-      } else if (currentTool === 'pen') {
-        canvas.freeDrawingBrush.color = drawingColor;
-        canvas.freeDrawingBrush.width = drawingWidth;
-      }
+    if (whiteboardManagerRef.current) {
+      whiteboardManagerRef.current.setColor(drawingColor);
+      whiteboardManagerRef.current.setWidth(drawingWidth);
     }
-  }, [drawingColor, drawingWidth, currentTool]);
+  }, [drawingColor, drawingWidth]);
 
   // ツール変更
   const setTool = (tool: DrawingTool) => {
     setCurrentTool(tool);
-    
-    if (fabricCanvasRef.current) {
-      const canvas = fabricCanvasRef.current;
-      
-      switch (tool) {
-        case 'pen':
-          canvas.isDrawingMode = true;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          canvas.freeDrawingBrush.color = drawingColor;
-          canvas.freeDrawingBrush.width = drawingWidth;
-          break;
-        case 'eraser':
-          canvas.isDrawingMode = true;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          canvas.freeDrawingBrush.color = '#FFFFFF';
-          canvas.freeDrawingBrush.width = drawingWidth * 2;
-          break;
-        case 'select':
-          canvas.isDrawingMode = false;
-          canvas.selection = true;
-          canvas.skipTargetFind = false;
-          break;
-        case 'rectangle':
-        case 'circle':
-        case 'line':
-        case 'text':
-          canvas.isDrawingMode = false;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          break;
-        default:
-          canvas.isDrawingMode = false;
-          canvas.selection = false;
-          canvas.skipTargetFind = true;
-          break;
-      }
+    if (whiteboardManagerRef.current) {
+      whiteboardManagerRef.current.setTool(tool);
     }
   };
 
@@ -639,38 +348,27 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     setDrawingWidthState(width);
   };
 
-  // 全消去
+  // 全消去（コマンドパターンを使用）
   const clearCanvas = () => {
-    if (fabricCanvasRef.current) {
-      fabricCanvasRef.current.clear();
-      // Firebaseのデータも削除
-      const pathsRef = ref(db, `drawings/${sessionId}/paths`);
-      remove(pathsRef).catch((error) => {
-        console.error('Firebase clear error:', error);
-      });
+    if (whiteboardManagerRef.current) {
+      whiteboardManagerRef.current.clearCanvas();
     }
   };
 
-  // Undo機能
+  // Undo機能（コマンドパターンを使用）
   const undo = () => {
-    if (fabricCanvasRef.current) {
-      const objects = fabricCanvasRef.current.getObjects();
-      if (objects.length > 0) {
-        const lastObject = objects[objects.length - 1];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const firebaseId = (lastObject as any).get('firebaseId');
-        
-        fabricCanvasRef.current.remove(lastObject);
-        
-        // Firebaseからも削除
-        if (firebaseId) {
-          const objectRef = ref(db, `drawings/${sessionId}/paths/${firebaseId}`);
-          remove(objectRef).catch((error) => {
-            console.error('Firebase delete error:', error);
-          });
-        }
-      }
+    if (whiteboardManagerRef.current) {
+      return whiteboardManagerRef.current.undo();
     }
+    return false;
+  };
+
+  // Redo機能（新機能）
+  const redo = () => {
+    if (whiteboardManagerRef.current) {
+      return whiteboardManagerRef.current.redo();
+    }
+    return false;
   };
 
   return { 
@@ -684,6 +382,7 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     setDrawingColor, 
     setDrawingWidth,
     clearCanvas,
-    undo
+    undo,
+    redo
   };
 }

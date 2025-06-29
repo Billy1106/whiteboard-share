@@ -1,6 +1,7 @@
 'use client';
 
-import { useWhiteboard, DrawingTool } from '@/hooks/useWhiteboard';
+import { useWhiteboard } from '@/hooks/useWhiteboard';
+import { DrawingTool } from '@/whiteboard';
 
 interface WhiteboardProps {
   sessionId: string;
