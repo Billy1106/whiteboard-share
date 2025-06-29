@@ -1,160 +1,81 @@
 'use client';
 
-import { useWhiteboard } from '@/hooks/useWhiteboard';
-import { DrawingTool } from '@/whiteboard';
+import { WhiteboardProvider, useWhiteboardContext } from '@/contexts/WhiteboardContext';
+import DrawingToolbar from '@/components/DrawingToolbar';
 
 interface WhiteboardProps {
   sessionId: string;
   userId: string;
 }
 
-const colors = [
-  '#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', 
-  '#FF00FF', '#00FFFF', '#FFA500', '#800080', '#FFC0CB',
-  '#A52A2A', '#808080', '#FFFFFF'
-];
+function WhiteboardCanvas() {
+  const { canvasRef, isCanvasReady, currentTool, drawingColor, drawingWidth, zoomLevel } = useWhiteboardContext();
 
-const tools: { id: DrawingTool; name: string; icon: string }[] = [
-  { id: 'pen', name: 'ペン', icon: '🖊️' },
-  { id: 'eraser', name: '消しゴム', icon: '🧹' },
-  { id: 'rectangle', name: '長方形', icon: '⬜' },
-  { id: 'circle', name: '円', icon: '⭕' },
-  { id: 'line', name: '直線', icon: '📏' },
-  { id: 'text', name: 'テキスト', icon: '📝' },
-  { id: 'select', name: '選択', icon: '👆' },
-];
-
-export default function Whiteboard({ sessionId, userId }: WhiteboardProps) {
-  const { 
-    canvasRef, 
-    isCanvasReady, 
-    currentTool,
-    drawingColor,
-    drawingWidth,
-    setTool,
-    setDrawingColor, 
-    setDrawingWidth,
-    clearCanvas,
-    undo
-  } = useWhiteboard({ sessionId, userId });
+  const getToolDisplayName = (tool: string) => {
+    const toolNames: Record<string, string> = {
+      'pen': 'ペン',
+      'eraser': '消しゴム',
+      'rectangle': '長方形',
+      'circle': '円',
+      'line': '直線',
+      'text': 'テキスト',
+      'select': '選択',
+      'hand': '移動'
+    };
+    return toolNames[tool] || tool;
+  };
 
   return (
-    <div className="flex flex-col items-center space-y-4">
-      {/* ツールバー */}
-      <div className="bg-white p-4 rounded-lg shadow-lg border">
-        {/* 描画ツール */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2">描画ツール</h3>
-          <div className="flex flex-wrap gap-2">
-            {tools.map((tool) => (
-              <button
-                key={tool.id}
-                onClick={() => setTool(tool.id)}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  currentTool === tool.id
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-                title={tool.name}
-              >
-                <span className="mr-1">{tool.icon}</span>
-                {tool.name}
-              </button>
-            ))}
-          </div>
-        </div>
+    <div className="fixed inset-0 bg-gray-100">
+      {/* 描画ツールバー */}
+      <DrawingToolbar />
 
-        {/* 色選択 */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2">色選択</h3>
-          <div className="flex flex-wrap gap-2">
-            {colors.map((color) => (
-              <button
-                key={color}
-                onClick={() => setDrawingColor(color)}
-                className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${
-                  drawingColor === color ? 'border-gray-800 scale-110' : 'border-gray-300'
-                }`}
-                style={{ backgroundColor: color }}
-                title={color}
-              />
-            ))}
-            <input
-              type="color"
-              value={drawingColor}
-              onChange={(e) => setDrawingColor(e.target.value)}
-              className="w-8 h-8 rounded-full border-2 border-gray-300 cursor-pointer"
-              title="カスタム色"
-              aria-label="カスタム色選択"
-            />
-          </div>
-        </div>
-
-        {/* 線の太さ */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2">線の太さ: {drawingWidth}px</h3>
-          <input
-            type="range"
-            min="1"
-            max="50"
-            value={drawingWidth}
-            onChange={(e) => setDrawingWidth(parseInt(e.target.value))}
-            className="w-full"
-            aria-label="線の太さ調整"
+      {/* メインキャンバス */}
+      <div className="w-full h-full flex items-center justify-center p-4">
+        <div className="relative w-full bg-white  h-full max-w-full max-h-full">
+          <canvas 
+            ref={canvasRef} 
+            width={1500} 
+            height={800} 
+            className={`w-full h-full border-2 border-gray-300 rounded-lg shadow-lg ${
+              !isCanvasReady ? 'opacity-50' : ''
+            }`}
+            style={{ 
+              maxWidth: '100%', 
+              maxHeight: '100%',
+              objectFit: 'contain'
+            }}
           />
-        </div>
-
-        {/* 操作ボタン */}
-        <div>
-          <h3 className="text-sm font-semibold mb-2">操作</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={undo}
-              className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors"
-            >
-              ↶ 元に戻す
-            </button>
-            <button
-              onClick={clearCanvas}
-              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
-            >
-              🗑️ 全消去
-            </button>
-          </div>
+          {!isCanvasReady && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg">
+              <div className="text-gray-500 flex items-center gap-2">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-gray-600"></div>
+                <span className="text-lg">読み込み中...</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* キャンバス */}
-      <div className="bg-white rounded-lg shadow-lg p-4">
-        <canvas 
-          ref={canvasRef} 
-          width={800} 
-          height={600} 
-          className={`border-2 border-gray-300 rounded-md ${
-            !isCanvasReady ? 'opacity-50' : ''
-          }`}
-        />
-        {!isCanvasReady && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-gray-500">読み込み中...</div>
+      {/* 現在の状態表示 */}
+      <div className="fixed bottom-4 right-4 z-10 rounded-lg shadow-lg p-3 border">
+        <div className="text-xs text-gray-600 space-y-1">
+          <div><strong>{getToolDisplayName(currentTool)}:</strong> アクティブなツール</div>
+          <div className="flex items-center gap-2">
+            色: <span className="w-3 h-3 rounded-full border" style={{backgroundColor: drawingColor}}></span>
           </div>
-        )}
-      </div>
-
-      {/* ツール説明 */}
-      <div className="bg-gray-50 p-4 rounded-lg max-w-4xl">
-        <h3 className="text-sm font-semibold mb-2">使い方</h3>
-        <div className="text-xs text-gray-600 grid grid-cols-2 gap-2">
-          <div><strong>ペン:</strong> 自由に描画</div>
-          <div><strong>消しゴム:</strong> 描画を消去</div>
-          <div><strong>長方形:</strong> ドラッグして長方形を描画</div>
-          <div><strong>円:</strong> ドラッグして円を描画</div>
-          <div><strong>直線:</strong> ドラッグして直線を描画</div>
-          <div><strong>テキスト:</strong> クリックしてテキスト入力</div>
-          <div><strong>選択:</strong> オブジェクトを選択・移動</div>
-          <div><strong>全消去:</strong> キャンバス全体をクリア</div>
+          <div>太さ: {drawingWidth}px</div>
+          <div>ズーム: {Math.round(zoomLevel * 100)}%</div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Whiteboard({ sessionId, userId }: WhiteboardProps) {
+  return (
+    <WhiteboardProvider sessionId={sessionId} userId={userId}>
+      <WhiteboardCanvas />
+    </WhiteboardProvider>
   );
 }

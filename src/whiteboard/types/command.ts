@@ -12,7 +12,7 @@ export interface DrawingContext {
   fabricLib: typeof import('fabric');
 }
 
-export type DrawingTool = 'pen' | 'eraser' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'text' | 'select';
+export type DrawingTool = 'pen' | 'eraser' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'text' | 'select' | 'hand';
 
 export interface DrawingData {
   tool: DrawingTool;

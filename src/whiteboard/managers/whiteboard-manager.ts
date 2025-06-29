@@ -199,6 +199,12 @@ export class WhiteboardManager {
         canvas.skipTargetFind = false;
         canvas.getElement().style.cursor = 'default';
         break;
+      case 'hand':
+        canvas.isDrawingMode = false;
+        canvas.selection = false;
+        canvas.skipTargetFind = true;
+        canvas.getElement().style.cursor = 'grab';
+        break;
       default:
         canvas.isDrawingMode = false;
         canvas.selection = false;
