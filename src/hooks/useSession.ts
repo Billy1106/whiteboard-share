@@ -14,18 +14,31 @@ export function useSession(sessionId: string) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // セッション認証状態のキー
+  const authKey = `session_auth_${sessionId}`;
+
   useEffect(() => {
     const fetchSession = async () => {
       setLoading(true);
       setError(null);
       try {
+        // セッションストレージから認証状態を復元
+        const storedAuth = sessionStorage.getItem(authKey);
+        const isStoredAuthenticated = storedAuth === 'true';
+
         const sessionRef = ref(db, `sessions/${sessionId}`);
         const snapshot = await get(sessionRef);
         if (snapshot.exists()) {
           const data = snapshot.val() as SessionData;
           setSession(data);
+          
           if (!data.password) {
-            setIsAuthenticated(true); // パスワードがない場合は認証済みとする
+            // パスワードがない場合は認証済みとする
+            setIsAuthenticated(true);
+            sessionStorage.setItem(authKey, 'true');
+          } else if (isStoredAuthenticated) {
+            // 以前に認証済みの場合は状態を復元
+            setIsAuthenticated(true);
           }
         } else {
           setError('セッションが見つかりません。');
@@ -39,12 +52,13 @@ export function useSession(sessionId: string) {
     };
 
     fetchSession();
-  }, [sessionId]);
+  }, [sessionId, authKey]);
 
   const authenticate = async (inputPassword: string) => {
     if (!session?.password) {
       // パスワードが設定されていないセッションの場合
       setIsAuthenticated(true);
+      sessionStorage.setItem(authKey, 'true');
       return true;
     }
 
@@ -52,6 +66,9 @@ export function useSession(sessionId: string) {
       const match = await bcrypt.compare(inputPassword, session.password);
       if (match) {
         setIsAuthenticated(true);
+        // 認証成功時にセッションストレージに保存
+        sessionStorage.setItem(authKey, 'true');
+        setError(null);
         return true;
       } else {
         setError('パスワードが間違っています。');
@@ -64,5 +81,11 @@ export function useSession(sessionId: string) {
     }
   };
 
-  return { session, loading, isAuthenticated, error, authenticate };
+  // セッション認証状態をクリアする関数（必要に応じて使用）
+  const clearAuth = () => {
+    setIsAuthenticated(false);
+    sessionStorage.removeItem(authKey);
+  };
+
+  return { session, loading, isAuthenticated, error, authenticate, clearAuth };
 }
