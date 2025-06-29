@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ref, set, onChildAdded, remove } from 'firebase/database';
+import { ref, set, onValue, remove } from 'firebase/database';
 import { db } from '@/lib/firebase';
 
 export type DrawingTool = 'pen' | 'eraser' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'text' | 'select';
@@ -63,7 +63,7 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     });
     fabricCanvasRef.current = canvas;
 
-    let isDrawingFlag = false;
+
 
     // パス設定を共通化する関数
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,22 +146,16 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     // Firebase同期設定
     const pathsRef = ref(db, `drawings/${sessionId}/paths`);
     const loadedPathIds = new Set<string>();
-    let isInitialLoad = true;
     
-    const unsubscribe = onChildAdded(pathsRef, (snapshot) => {
-      const pathData = snapshot.val();
-      const pathId = snapshot.key;
-      
+    // オブジェクト復元の共通処理
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const restoreObject = (pathData: any, pathId: string) => {
       if (!pathId || !pathData || loadedPathIds.has(pathId)) return;
       
-      // 描画中は新規パスの同期をスキップ（初回読み込みは継続）
-      if (!isInitialLoad && isDrawingFlag) return;
-      
       try {
-        // オブジェクトタイプに応じて復元
         let objectToAdd;
         
-        if (pathData.type === 'path') {
+        if (pathData.type === 'path' || pathData.type === 'Path') {
           const FabricPath = fabricLib.Path || fabricLib.default?.Path;
           if (FabricPath.fromObject) {
             const pathObjectOrPromise = FabricPath.fromObject(pathData);
@@ -184,37 +178,64 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
           } else {
             objectToAdd = new FabricPath(pathData.path, pathData);
           }
-        } else if (pathData.type === 'rect') {
+        } else if (pathData.type === 'rect' || pathData.type === 'Rect') {
           const FabricRect = fabricLib.Rect || fabricLib.default?.Rect;
           objectToAdd = new FabricRect(pathData);
-        } else if (pathData.type === 'circle') {
+        } else if (pathData.type === 'circle' || pathData.type === 'Circle') {
           const FabricCircle = fabricLib.Circle || fabricLib.default?.Circle;
           objectToAdd = new FabricCircle(pathData);
-        } else if (pathData.type === 'line') {
+        } else if (pathData.type === 'line' || pathData.type === 'Line') {
           const FabricLine = fabricLib.Line || fabricLib.default?.Line;
           objectToAdd = new FabricLine([pathData.x1, pathData.y1, pathData.x2, pathData.y2], pathData);
-        } else if (pathData.type === 'i-text') {
+        } else if (pathData.type === 'i-text' || pathData.type === 'IText') {
           const FabricIText = fabricLib.IText || fabricLib.default?.IText;
           objectToAdd = new FabricIText(pathData.text, pathData);
         }
         
         if (objectToAdd) {
           addPathToCanvas(objectToAdd, pathId, loadedPathIds);
-          
-          if (isInitialLoad) {
-            setTimeout(() => { isInitialLoad = false; }, 1000);
-          }
         }
       } catch (error) {
-        console.error('Object creation error:', error);
+        console.error('Object creation error for', pathId, ':', error);
+      }
+    };
+    
+    let isInitialLoad = true;
+    
+    // Firebase同期設定
+    const unsubscribe = onValue(pathsRef, (snapshot) => {
+      try {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          const firebaseObjectIds = Object.keys(data);
+          
+          if (isInitialLoad) {
+            // 初回ロード時：すべてのデータを復元
+            firebaseObjectIds.forEach((pathId) => {
+              restoreObject(data[pathId], pathId);
+            });
+            canvas.renderAll();
+            isInitialLoad = false;
+          } else {
+            // 通常の更新時：新しいオブジェクトのみを追加
+            firebaseObjectIds.forEach((pathId) => {
+              if (!loadedPathIds.has(pathId)) {
+                restoreObject(data[pathId], pathId);
+              }
+            });
+            canvas.renderAll();
+          }
+        } else if (isInitialLoad) {
+          isInitialLoad = false;
+        }
+      } catch (error) {
+        console.error('Data sync error:', error);
       }
     });
 
     // マウスイベントハンドラー
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on('mouse:down', (opt: any) => {
-      isDrawingFlag = true;
-      
       const pointer = canvas.getPointer(opt.e);
       setStartPoint(pointer);
       
@@ -224,8 +245,6 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     });
 
     canvas.on('mouse:up', () => {
-      isDrawingFlag = false;
-      
       if (startPoint && ['rectangle', 'circle', 'line'].includes(currentTool)) {
         const pointer = canvas.getPointer(canvas.getActiveObject());
         if (pointer) {
@@ -280,7 +299,7 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
         canvas.add(shape);
         canvas.renderAll();
         
-        // Firebaseに保存
+        // 図形をFirebaseに保存
         const shapeData = shape.toObject();
         const shapeRef = ref(db, `drawings/${sessionId}/paths/${objectId}`);
         set(shapeRef, shapeData).catch((error) => {
@@ -306,7 +325,7 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       text.selectAll();
       canvas.renderAll();
       
-      // テキスト編集完了時にFirebaseに保存
+      // テキスト編集完了時の保存
       text.on('editing:exited', () => {
         const timestamp = Date.now();
         const textId = `${userId}_${timestamp}`;
@@ -318,21 +337,20 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       });
     };
 
-    // パス作成完了時にFirebaseに保存（ペン・消しゴムモード）
+    // パス作成完了時の処理
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on('path:created', (e: any) => {
       if (!e.path) return;
       
       if (currentTool === 'eraser') {
-        // 消しゴムモードの場合、交差するオブジェクトを削除
         const objects = canvas.getObjects();
         const eraserPath = e.path;
         
+        // 消しゴム：交差するオブジェクトを削除
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         objects.forEach((obj: any) => {
           if (obj !== eraserPath && obj.intersectsWithObject && obj.intersectsWithObject(eraserPath)) {
             canvas.remove(obj);
-            // Firebaseからも削除（実装は複雑になるため、ここでは省略）
           }
         });
         
@@ -340,18 +358,16 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
         return;
       }
       
-      // fillを空に設定してからFirebaseに保存
+      // パスをFirebaseに保存
       e.path.set('fill', '');
-      
       const pathData = e.path.toObject();
       const timestamp = Date.now();
       const pathId = `${userId}_${timestamp}`;
       
       const pathRef = ref(db, `drawings/${sessionId}/paths/${pathId}`);
-      set(pathRef, pathData)
-        .catch((error) => {
-          console.error('Firebase save error:', error);
-        });
+      set(pathRef, pathData).catch((error) => {
+        console.error('Firebase save error:', error);
+      });
     });
 
     return () => {
