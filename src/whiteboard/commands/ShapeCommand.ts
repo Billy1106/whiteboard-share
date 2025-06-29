@@ -22,7 +22,12 @@ export class ShapeCommand extends BaseCommand {
   }
 
   undo(): void {
-    if (!this.isExecuted) return;
+    if (!this.isExecuted) {
+
+      return;
+    }
+
+
 
     if (this.fabricObject) {
       this.removeFromCanvas(this.fabricObject);
@@ -31,6 +36,8 @@ export class ShapeCommand extends BaseCommand {
     }
     this.removeFromFirebase();
     this.isExecuted = false;
+    
+
   }
 
   getType(): string {

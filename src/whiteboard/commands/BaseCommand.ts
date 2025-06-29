@@ -22,11 +22,12 @@ export abstract class BaseCommand implements Command {
    */
   protected saveToFirebase(data: Record<string, unknown>): void {
     try {
-      console.log('Saving to Firebase:', this.objectId, data);
+      // undefinedの値を除去
+      const cleanData = this.removeUndefinedValues(data) as Record<string, unknown>;
       const pathRef = ref(db, `drawings/${this.context.sessionId}/paths/${this.objectId}`);
-      set(pathRef, data)
+      set(pathRef, cleanData)
         .then(() => {
-          console.log('Saved to Firebase successfully');
+    
         })
         .catch((error) => {
           console.error('Firebase save error:', error);
@@ -36,11 +37,46 @@ export abstract class BaseCommand implements Command {
     }
   }
 
+  /**
+   * undefinedの値を再帰的に除去
+   */
+  private removeUndefinedValues(obj: unknown): unknown {
+    if (obj === null || obj === undefined) {
+      return null;
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.removeUndefinedValues(item));
+    }
+    
+    if (typeof obj === 'object' && obj !== null) {
+      const cleaned: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+          cleaned[key] = this.removeUndefinedValues(value);
+        }
+      }
+      return cleaned;
+    }
+    
+    return obj;
+  }
+
   protected removeFromFirebase(): void {
-    const pathRef = ref(db, `drawings/${this.context.sessionId}/paths/${this.objectId}`);
-    remove(pathRef).catch((error) => {
-      console.error('Firebase delete error:', error);
-    });
+    try {
+      const pathRef = ref(db, `drawings/${this.context.sessionId}/paths/${this.objectId}`);
+  
+      
+      remove(pathRef)
+                  .then(() => {
+            
+          })
+        .catch((error) => {
+          console.error('Firebase削除エラー:', this.objectId, error);
+        });
+    } catch (error) {
+      console.error('Firebase削除設定エラー:', this.objectId, error);
+    }
   }
 
   protected addToCanvas(fabricObject: fabric.Object): void {
@@ -50,19 +86,32 @@ export abstract class BaseCommand implements Command {
   }
 
   protected removeFromCanvas(fabricObject: fabric.Object | null = null): void {
+
+    
     if (fabricObject) {
+
       this.context.canvas.remove(fabricObject);
     } else {
       // firebaseIdで検索して削除
+
       const objects = this.context.canvas.getObjects();
-      const targetObject = objects.find((obj: fabric.Object) => 
-        (obj as fabric.Object & { firebaseId?: string }).firebaseId === this.objectId
-      );
+
       
-      if (targetObject) {
-        this.context.canvas.remove(targetObject);
-      }
-    }
-    this.context.canvas.renderAll();
+      const targetObject = objects.find((obj: fabric.Object) => {
+        const firebaseId = (obj as fabric.Object & { firebaseId?: string }).firebaseId;
+        
+        return firebaseId === this.objectId;
+      });
+      
+              if (targetObject) {
+          
+          this.context.canvas.remove(targetObject);
+        } else {
+          
+        }
+          }
+      
+      this.context.canvas.renderAll();
+      
   }
 } 

@@ -26,18 +26,17 @@ export class WhiteboardManager {
    * 現在のツールを設定
    */
   setTool(tool: DrawingTool): void {
-    console.log('WhiteboardManager.setTool:', tool);
     this.currentTool = tool;
     this.updateCanvasMode();
     this.updatePreviewCommand();
-    console.log('Tool set, isDrawingMode:', this.context.canvas.isDrawingMode);
+
   }
 
   /**
    * 描画色を設定
    */
   setColor(color: string): void {
-    console.log('WhiteboardManager.setColor:', color);
+
     this.currentColor = color;
     this.updateBrushSettings();
     this.updatePreviewCommand();
@@ -47,7 +46,7 @@ export class WhiteboardManager {
    * 描画幅を設定
    */
   setWidth(width: number): void {
-    console.log('WhiteboardManager.setWidth:', width);
+
     this.currentWidth = width;
     this.updateBrushSettings();
     this.updatePreviewCommand();
@@ -127,11 +126,10 @@ export class WhiteboardManager {
   /**
    * パス描画（ペン描画完了時に呼び出し）
    */
-  addPath(pathData: Record<string, unknown>): void {
-    console.log('WhiteboardManager.addPath called with:', pathData);
-    const command = new PathCommand(this.context, pathData);
+  addPath(pathData: Record<string, unknown>, objectId?: string): void {
+
+    const command = new PathCommand(this.context, pathData, objectId);
     this.commandManager.executeCommand(command);
-    console.log('PathCommand executed');
   }
 
   /**
@@ -146,7 +144,6 @@ export class WhiteboardManager {
    * 全クリア
    */
   clearCanvas(): void {
-    console.log('clearCanvas');
     const command = new ClearCommand(this.context);
     this.commandManager.executeCommand(command);
   }

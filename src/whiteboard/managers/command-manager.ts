@@ -31,7 +31,7 @@ export class CommandManager {
         this.currentIndex = this.maxHistorySize - 1;
       }
       
-      console.log(`Command executed: ${command.getType()}`);
+  
     } catch (error) {
       console.error('Command execution error:', error);
     }
@@ -42,15 +42,18 @@ export class CommandManager {
    */
   undo(): boolean {
     if (!this.canUndo()) {
+
       return false;
     }
 
     try {
       const command = this.history[this.currentIndex];
+  
+      
       command.undo();
       this.currentIndex--;
       
-      console.log(`Command undone: ${command.getType()}`);
+  
       return true;
     } catch (error) {
       console.error('Undo error:', error);
@@ -71,7 +74,7 @@ export class CommandManager {
       const command = this.history[this.currentIndex];
       command.execute();
       
-      console.log(`Command redone: ${command.getType()}`);
+      
       return true;
     } catch (error) {
       console.error('Redo error:', error);
@@ -100,7 +103,7 @@ export class CommandManager {
   clearHistory(): void {
     this.history = [];
     this.currentIndex = -1;
-    console.log('Command history cleared');
+
   }
 
   /**

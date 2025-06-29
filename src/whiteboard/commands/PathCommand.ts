@@ -86,7 +86,12 @@ export class PathCommand extends BaseCommand {
   }
 
   undo(): void {
-    if (!this.isExecuted) return;
+    if (!this.isExecuted) {
+
+      return;
+    }
+
+
 
     if (this.fabricObject) {
       this.removeFromCanvas(this.fabricObject);
@@ -95,6 +100,8 @@ export class PathCommand extends BaseCommand {
     }
     this.removeFromFirebase();
     this.isExecuted = false;
+    
+
   }
 
   getType(): string {

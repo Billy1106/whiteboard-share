@@ -96,13 +96,7 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
         manager.setColor(drawingColor);
         manager.setWidth(drawingWidth);
         
-        console.log('初期設定完了:', {
-          currentTool,
-          drawingColor,
-          drawingWidth,
-          isDrawingMode: canvas.isDrawingMode,
-          freeDrawingBrush: canvas.freeDrawingBrush
-        });
+
         
         const canvasElement = canvas.getElement();
         if (canvasElement) {
@@ -121,6 +115,19 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     const pathsRef = ref(db, `drawings/${sessionId}/paths`);
     const loadedPathIds = new Set<string>();
     
+    // 読み取り専用プロパティを除去する関数
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cleanObjectData = (data: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cleaned: any = { ...data };
+      // 読み取り専用プロパティを除去
+      delete cleaned.type;
+      delete cleaned.version;
+      delete cleaned.originX;
+      delete cleaned.originY;
+      return cleaned;
+    };
+
     // オブジェクト復元の共通処理
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const restoreObject = (pathData: any, pathId: string) => {
@@ -141,7 +148,8 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
                   addPathToCanvas(pathObject, pathId, loadedPathIds);
                 }
               }).catch(() => {
-                const pathObject = new FabricPath(pathData.path, pathData);
+                const cleanedData = cleanObjectData(pathData);
+                const pathObject = new FabricPath(pathData.path, cleanedData);
                 configurePathObject(pathObject, pathData);
                 addPathToCanvas(pathObject, pathId, loadedPathIds);
               });
@@ -150,20 +158,25 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
               objectToAdd = pathObjectOrPromise;
             }
           } else {
-            objectToAdd = new FabricPath(pathData.path, pathData);
+            const cleanedData = cleanObjectData(pathData);
+            objectToAdd = new FabricPath(pathData.path, cleanedData);
           }
         } else if (pathData.type === 'rect' || pathData.type === 'Rect') {
           const FabricRect = fabricLib.Rect || fabricLib.default?.Rect;
-          objectToAdd = new FabricRect(pathData);
+          const cleanedData = cleanObjectData(pathData);
+          objectToAdd = new FabricRect(cleanedData);
         } else if (pathData.type === 'circle' || pathData.type === 'Circle') {
           const FabricCircle = fabricLib.Circle || fabricLib.default?.Circle;
-          objectToAdd = new FabricCircle(pathData);
+          const cleanedData = cleanObjectData(pathData);
+          objectToAdd = new FabricCircle(cleanedData);
         } else if (pathData.type === 'line' || pathData.type === 'Line') {
           const FabricLine = fabricLib.Line || fabricLib.default?.Line;
-          objectToAdd = new FabricLine([pathData.x1, pathData.y1, pathData.x2, pathData.y2], pathData);
+          const cleanedData = cleanObjectData(pathData);
+          objectToAdd = new FabricLine([pathData.x1, pathData.y1, pathData.x2, pathData.y2], cleanedData);
         } else if (pathData.type === 'i-text' || pathData.type === 'IText') {
           const FabricIText = fabricLib.IText || fabricLib.default?.IText;
-          objectToAdd = new FabricIText(pathData.text, pathData);
+          const cleanedData = cleanObjectData(pathData);
+          objectToAdd = new FabricIText(pathData.text || '', cleanedData);
         }
         
         if (objectToAdd) {
@@ -309,10 +322,21 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       
       if (currentTool === 'pen') {
         // ペン描画をコマンドパターンで実行
+
+        
+        // Fabricjsが自動的にキャンバスに追加したパスを一旦削除
+        canvas.remove(e.path);
+        
+        // パスデータを準備
         e.path.set('fill', '');
         const pathData = e.path.toObject();
-        manager.addPath(pathData);
-        console.log('ペンツールでパス作成:', pathData);
+        
+        // パスオブジェクトに一意のIDを生成・設定
+        const objectId = `${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        
+        // コマンドパターンでペン描画を実行（再度キャンバスに追加される）
+        manager.addPath(pathData, objectId);
       }
     });
 
