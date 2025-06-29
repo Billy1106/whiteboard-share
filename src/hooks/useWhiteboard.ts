@@ -78,6 +78,8 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     // パスをキャンバスに追加する共通処理
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const addPathToCanvas = (pathObject: any, pathId: string, loadedPathIds: Set<string>) => {
+      // FirebaseのIDをオブジェクトに保存
+      pathObject.set('firebaseId', pathId);
       canvas.add(pathObject);
       canvas.renderAll();
       loadedPathIds.add(pathId);
@@ -217,15 +219,35 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
             canvas.renderAll();
             isInitialLoad = false;
           } else {
-            // 通常の更新時：新しいオブジェクトのみを追加
+            // 通常の更新時：新しいオブジェクトを追加、削除されたオブジェクトを削除
+            
+            // 新しいオブジェクトを追加
             firebaseObjectIds.forEach((pathId) => {
               if (!loadedPathIds.has(pathId)) {
                 restoreObject(data[pathId], pathId);
               }
             });
+            
+            // 削除されたオブジェクトをキャンバスから削除
+            const canvasObjects = canvas.getObjects();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            canvasObjects.forEach((obj: any) => {
+              const firebaseId = obj.get('firebaseId');
+              if (firebaseId && !firebaseObjectIds.includes(firebaseId)) {
+                canvas.remove(obj);
+                loadedPathIds.delete(firebaseId);
+              }
+            });
+            
             canvas.renderAll();
           }
-        } else if (isInitialLoad) {
+        } else {
+          // データが完全に削除された場合（全消去）
+          if (!isInitialLoad) {
+            canvas.clear();
+            loadedPathIds.clear();
+            canvas.renderAll();
+          }
           isInitialLoad = false;
         }
       } catch (error) {
@@ -296,6 +318,8 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       }
       
       if (shape) {
+        // FirebaseのIDをオブジェクトに設定
+        shape.set('firebaseId', objectId);
         canvas.add(shape);
         canvas.renderAll();
         
@@ -311,6 +335,9 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
     // テキスト追加関数
     const addText = (x: number, y: number) => {
       const FabricIText = fabricLib.IText || fabricLib.default?.IText;
+      const timestamp = Date.now();
+      const textId = `${userId}_${timestamp}`;
+      
       const text = new FabricIText('テキストを入力', {
         left: x,
         top: y,
@@ -318,6 +345,9 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
         fontSize: 20,
         fill: currentColorRef.current,
       });
+      
+      // FirebaseのIDをオブジェクトに設定
+      text.set('firebaseId', textId);
       
       canvas.add(text);
       canvas.setActiveObject(text);
@@ -327,8 +357,6 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       
       // テキスト編集完了時の保存
       text.on('editing:exited', () => {
-        const timestamp = Date.now();
-        const textId = `${userId}_${timestamp}`;
         const textData = text.toObject();
         const textRef = ref(db, `drawings/${sessionId}/paths/${textId}`);
         set(textRef, textData).catch((error) => {
@@ -350,7 +378,16 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         objects.forEach((obj: any) => {
           if (obj !== eraserPath && obj.intersectsWithObject && obj.intersectsWithObject(eraserPath)) {
+            const firebaseId = obj.get('firebaseId');
             canvas.remove(obj);
+            
+            // Firebaseからも削除
+            if (firebaseId) {
+              const objectRef = ref(db, `drawings/${sessionId}/paths/${firebaseId}`);
+              remove(objectRef).catch((error) => {
+                console.error('Firebase delete error:', error);
+              });
+            }
           }
         });
         
@@ -359,11 +396,13 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       }
       
       // パスをFirebaseに保存
-      e.path.set('fill', '');
-      const pathData = e.path.toObject();
       const timestamp = Date.now();
       const pathId = `${userId}_${timestamp}`;
       
+      e.path.set('fill', '');
+      e.path.set('firebaseId', pathId);
+      
+      const pathData = e.path.toObject();
       const pathRef = ref(db, `drawings/${sessionId}/paths/${pathId}`);
       set(pathRef, pathData).catch((error) => {
         console.error('Firebase save error:', error);
@@ -450,8 +489,18 @@ export function useWhiteboard({ sessionId, userId }: UseWhiteboardProps) {
       const objects = fabricCanvasRef.current.getObjects();
       if (objects.length > 0) {
         const lastObject = objects[objects.length - 1];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const firebaseId = (lastObject as any).get('firebaseId');
+        
         fabricCanvasRef.current.remove(lastObject);
-        // 実際の実装では、より詳細なundo/redo履歴管理が必要
+        
+        // Firebaseからも削除
+        if (firebaseId) {
+          const objectRef = ref(db, `drawings/${sessionId}/paths/${firebaseId}`);
+          remove(objectRef).catch((error) => {
+            console.error('Firebase delete error:', error);
+          });
+        }
       }
     }
   };
